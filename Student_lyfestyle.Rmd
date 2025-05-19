@@ -1,0 +1,261 @@
+---
+title: "Student Lifestyle project"
+author: "Sannidhi Patel"
+date: "2025-05-09"
+output: html_document
+---
+
+## Project Overview
+
+This project explores how daily lifestyle habits impact student academic performance (GPA). Using a dataset of 2,000 university students, we analyze variables like study hours, sleep, stress, socializing, and physical activity. The project applies EDA, feature engineering, and predictive modeling (Linear Regression, Decision Tree, and Random Forest) to extract actionable insights.
+
+---
+
+## 📊 Exploratory Data Analysis (EDA)
+### Load Data and Packages
+```{r}
+# Load packages
+library(readr); library(dplyr); library(ggplot2); library(scales)
+# Load data
+data <- read_csv("C:/Users/sanni/Desktop/Sanniben/Projects/student_lifestyle_dataset..csv")
+# Drop ID, check for NAs
+data <- dplyr::select(data, -Student_ID)
+sum(is.na(data))
+```
+
+### Data Preparation
+
+```{r}
+# Convert Gender to factor
+data$Gender <- as.factor(data$Gender)
+data$Stress_Level <- factor(data$Stress_Level,
+                            levels = c("Low", "Moderate", "High"),
+                            ordered = TRUE)
+```
+
+### Study Hours vs CGPA
+#### 📌 Insight:
+As expected, students who study more tend to have higher GPAs. The upward trend is clear, especially up to around 8 hours a day. After that, the gains start to level off a bit, meaning that studying more doesn’t always lead to big improvements. This suggests that studying between 6 to 8 hours per day might be the sweet spot — enough to boost grades without burning out.
+
+```{r}
+#Is there a point where increasing Study Hours no longer improves CGPA? 
+#(e.g., after 6 hrs/day?)
+ggplot(data, aes(x = Study_Hours_Per_Day, y = Grades)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue") +
+  geom_vline(xintercept = 6, linetype = "dashed", color = "red") +
+  labs(title = "CGPA vs. Study Hours", x = "Study Hours", y = "CGPA")
+```
+
+### Grouped Study Hour Boxplot
+#### 📌 Insight:
+Students who study more than 6 hours a day tend to have noticeably higher GPAs. The average GPA in this group is around 7.98, compared to 7.05 for those studying between 3–6 hours. The boxplot also shows that the upper-performing students are mostly in the >6-hour group. This supports the idea that putting in more study time is strongly linked to academic success, at least up to a certain point.
+
+```{r}
+data <- data %>%
+  mutate(Study_Group = case_when(
+    Study_Hours_Per_Day < 3 ~ "<3 hrs",
+    Study_Hours_Per_Day >= 3 & Study_Hours_Per_Day <= 6 ~ "3–6 hrs",
+    Study_Hours_Per_Day > 6 ~ ">6 hrs"
+  ))
+
+ggplot(data, aes(x = Study_Group, y = Grades)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "CGPA by Study Hour Groups", x = "Study Hours", y = "CGPA")
+
+data %>%
+  group_by(Study_Group) %>%
+  summarise(
+    avg_cgpa = mean(Grades),
+    n = n()
+  )
+```
+
+
+### Socializing vs CGPA
+#### 📌 Insight:
+There doesn’t seem to be a strong relationship between socializing time and GPA overall, but the trend line does show a slight decline after about 4 hours of daily socializing. This suggests that moderate social time doesn’t hurt performance — but beyond a certain point, too much socializing might start to chip away at academic results. The effect is subtle, but it’s worth keeping an eye on for students trying to balance academics and social life.
+
+```{r}
+#Does more Socializing always lower GPA, or only after a certain threshold?
+ggplot(data, aes(x = Social_Hours_Per_Day, y = Grades)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "Grades vs Socializing Hours", x = "Socializing Hours", y = "Grades")
+```
+
+### Stress Level vs Grade Group
+#### 📌 Insight:
+Surprisingly, the students with high stress levels had the largest number of high grades. Meanwhile, students with moderate stress showed the most balanced distribution, and those with low stress were mostly in the lower grades group. This might suggest that some level of stress actually helps performance, possibly by pushing students to stay focused and driven. On the flip side, very low stress might reflect disengagement — or not being academically challenged enough.
+```{r}
+# How does Stress Level vary between high and low CGPA students?
+median_grades <- median(data$Grades, na.rm = TRUE)
+
+data <- data %>%
+  mutate(Grade_Group = ifelse(Grades >= median_grades, "High", "Low"))
+ggplot(data, aes(x = Stress_Level, fill = Grade_Group)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Stress Level by Grade Group",
+    x = "Stress Level",
+    y = "Student Count",
+    fill = "Grade Group"
+  )
+
+```
+
+### Gender vs Stress Level (Proportional)
+#### 📌 Insight:
+The proportions of stress levels look nearly identical between male and female students. Around half of each group reports high stress, followed by moderate and low stress levels. This suggests that stress is a shared experience across genders in this student population — with no clear difference in how male or female students experience or report it.
+
+```{r}
+# Does Gender influence how stress is experienced or reported?
+ggplot(data, aes(x = Gender, fill = Stress_Level)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Proportional Stress Levels by Gender",
+    y = "Proportion of Students",
+    x = "Gender"
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme_minimal()
+```
+
+### Chi-Square Test
+#### 📌 Insight:
+The Chi-Square test returned a p-value of 0.7015, which is much higher than the typical 0.05 significance level. This means there's no statistically significant relationship between gender and stress level. In simple terms, male and female students report similar stress patterns — confirming what we observed visually in the previous chart.
+
+```{r}
+table_gender_stress <- table(data$Gender, data$Stress_Level)
+chisq.test(table_gender_stress)
+```
+
+## 🛠️ Feature Engineering
+
+```{r}
+data <- data %>% mutate(
+  Overloaded_Student = ifelse(Study_Hours_Per_Day > 8 & Sleep_Hours_Per_Day < 6, 1, 0),
+  Balance_Score = Sleep_Hours_Per_Day + Physical_Activity_Hours_Per_Day - as.numeric(Stress_Level),
+  Is_Balanced = ifelse(Balance_Score >= median(Balance_Score), "Balanced", "Not Balanced"),
+  Lifestyle_Balance = case_when(
+    Study_Hours_Per_Day > 8 & Social_Hours_Per_Day < 2 ~ "Focused Academic",
+    Study_Hours_Per_Day < 6 & Social_Hours_Per_Day > 4 ~ "Highly Social",
+    Sleep_Hours_Per_Day >= 7 & Physical_Activity_Hours_Per_Day >= 1 ~ "Balanced",
+    TRUE ~ "Other"
+  ),
+  Performance_Tier = ifelse(Grades >= median(Grades, na.rm = TRUE), "High", "Low"),
+  Study_Sleep_Ratio = round(Study_Hours_Per_Day / Sleep_Hours_Per_Day, 2)
+)
+
+```
+
+## 🤖 Modeling & Evaluation
+
+### Split Data
+
+```{r}
+set.seed(123)
+split_index <- sample(seq_len(nrow(data)), size = 0.7 * nrow(data))
+train <- data[split_index, ]
+test <- data[-split_index, ]
+```
+
+### Linear Model + Stepwise
+
+```{r}
+library(MASS)
+full_model <- lm(Grades ~ Study_Hours_Per_Day + Sleep_Hours_Per_Day + Physical_Activity_Hours_Per_Day + Social_Hours_Per_Day + Stress_Level + Balance_Score + Overloaded_Student, data = train)
+step_model <- stepAIC(full_model, direction = "both")
+summary(step_model)
+
+```
+#### 📌 Insight:
+📊 Insight: Linear Model & Stepwise Selection
+The linear regression model confirmed what we suspected early on: study effort is the clearest and most reliable predictor of GPA. But it also surfaced a few nuanced insights that tell a deeper story.
+
+✅ Study Hours stood out as the strongest factor by far — reinforcing the idea that students who put in consistent daily effort are rewarded academically. It also suggests that study time may be one of the few factors directly within a student’s control that meaningfully improves grades.
+
+⚖️ Physical Activity Hours had a smaller but still significant impact. This hints at an important balance: while activity doesn’t dominate GPA outcomes, students who are physically active may also be better at managing stress and staying focused.
+
+📉 Interestingly, moderate stress levels (the quadratic effect) were associated with slightly higher GPAs. This supports a common idea in performance psychology: some pressure helps us perform better, as long as it doesn’t tip into overload. Too little stress might reflect disengagement, while too much becomes counterproductive.
+
+🟡 Sleep, Balance Score, and Overloaded Student — all wellness-related metrics — didn’t make the cut or weren’t statistically significant. That doesn’t mean wellness doesn’t matter. It likely means that these habits affect students in indirect ways (like mental health, retention, or energy), but may not strongly predict GPA alone.
+
+Model Performance:
+With an adjusted R² of 0.543, the model explains a good portion of GPA variation using just a few lifestyle variables — impressive, given the complexity of academic performance. The low residual error (≈0.508) shows strong predictive stability.
+
+🎯 Recommendation:
+Rather than broad wellness campaigns, schools might see more immediate academic gains by helping students optimize daily study habits and stay moderately challenged. At the same time, encouraging regular physical activity may have broader benefits that indirectly support learning, even if it’s not a GPA booster by itself.
+
+
+### Decision Tre & Random Forest
+
+
+```{r}
+library(rpart)
+library(randomForest)
+library(Metrics)
+
+tree_model <- rpart(Grades ~ Study_Hours_Per_Day + Sleep_Hours_Per_Day + Physical_Activity_Hours_Per_Day + Social_Hours_Per_Day + Stress_Level + Balance_Score + Overloaded_Student, data = train, method = "anova")
+test$Tree_Pred <- predict(tree_model, newdata = test)
+
+rf_model <- randomForest(Grades ~ Study_Hours_Per_Day + Sleep_Hours_Per_Day + Physical_Activity_Hours_Per_Day + Social_Hours_Per_Day + Stress_Level + Balance_Score + Overloaded_Student, data = train, ntree = 500)
+test$RF_Pred <- predict(rf_model, newdata = test)
+
+test$Predicted_Grades <- predict(step_model, newdata = test)
+
+lm_rmse <- rmse(test$Grades, test$Predicted_Grades)
+lm_mae <- mae(test$Grades, test$Predicted_Grades)
+tree_rmse <- rmse(test$Grades, test$Tree_Pred)
+tree_mae <- mae(test$Grades, test$Tree_Pred)
+rf_rmse <- rmse(test$Grades, test$RF_Pred)
+rf_mae <- mae(test$Grades, test$RF_Pred)
+```
+
+
+### Model Comparison Output
+
+```{r}
+print(paste("📏 Linear Model RMSE:", round(lm_rmse, 3), "| MAE:", round(lm_mae, 3)))
+print(paste("🌳 Decision Tree RMSE:", round(tree_rmse, 3), "| MAE:", round(tree_mae, 3)))
+print(paste("🌲 Random Forest RMSE:", round(rf_rmse, 3), "| MAE:", round(rf_mae, 3)))
+```
+#### 📌 Insight:
+🌳 Insight: Decision Tree & Random Forest vs Linear Model
+While building more complex models like Decision Trees and Random Forests can often improve predictive performance, in this case, they didn’t outperform the simpler linear model.
+
+📏 Linear Regression delivered the best performance overall with an RMSE of 0.505 and MAE of 0.404.
+
+🌳 Decision Tree came close but slightly underperformed, with an RMSE of 0.513.
+
+🌲 Random Forest, even with 500 trees, had the highest error (RMSE = 0.516) among the three.
+
+This might seem surprising at first — but there’s a clear story behind it.
+
+🧠 What This Tells Us:
+The relationship between lifestyle variables and GPA appears to be largely linear, or at least not complex enough to warrant advanced modeling. This is why the linear model performs best — it captures the trend without overfitting.
+
+Tree-based models are designed to detect non-linearities and complex interactions. Their performance plateauing here tells us there’s likely not much hidden complexity in how the variables affect GPA — just steady, explainable trends.
+
+For stakeholders, this is actually a good thing. It means we can trust simple models that are easier to interpret and explain — making them ideal for real-world academic policy and advising decisions.
+
+🎯 Recommendation:
+In this context, the linear model is both more accurate and more interpretable. Rather than investing time tuning complex models, institutions may be better off focusing on the known, measurable lifestyle behaviors — like study time and stress — which consistently predict performance.
+
+That said, tree-based models could still add value in other use cases, such as classifying at-risk students or identifying outliers in behavior profiles where interpretability isn’t the top priority.
+
+
+## Final Recommendation
+
+This analysis found that **study hours per day** is the most consistent and impactful predictor of GPA, while other lifestyle factors like sleep, socializing, and even stress played a smaller — but sometimes surprising — role.
+
+Although wellness factors like sleep and balance were not strong predictors of GPA on their own, they may still matter in longer-term academic success and retention. Notably, students with **moderate stress and regular physical activity** tended to do slightly better — suggesting that controlled pressure and healthy habits can be beneficial.
+
+From a decision-making perspective:
+- 📚 Focus academic support programs on **helping students manage study schedules** and avoid burnout.
+- ⚖️ Consider offering **targeted wellness guidance** — not just general advice — especially for students who are overloaded.
+- 📊 Use **simple, interpretable models** like linear regression when making student-facing predictions or dashboards — they’re not only effective, but transparent.
+
+This project shows that meaningful academic improvements may come not from extreme interventions, but from **helping students structure their day just a little better.**
+
+
